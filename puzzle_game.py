@@ -1,5 +1,5 @@
-# 8-Puzzle Game in Python with Flask - Debugged Version
-# Complete application in a single file for easy deployment
+# 8-Puzzle Game with Image Upload - Minimal Design (Version 6 Style)
+# ====================================================================
 
 from flask import Flask, render_template_string, jsonify, request
 from flask_cors import CORS
@@ -15,10 +15,10 @@ app = Flask(__name__)
 app.secret_key = 'your-secret-key-here-change-in-production'
 CORS(app)
 
-# Store game sessions (in production, use Redis or a database)
+# Store game sessions
 game_sessions = {}
 
-# HTML Template with minimal design
+# HTML Template - Minimal design exactly like version 6
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -34,8 +34,8 @@ HTML_TEMPLATE = '''
 
         .puzzle {
             display: inline-grid;
-            grid-template-columns: repeat(3, 60px);
-            grid-template-rows: repeat(3, 60px);
+            grid-template-columns: repeat(3, 100px);
+            grid-template-rows: repeat(3, 100px);
             gap: 2px;
             border: 2px solid black;
             margin: 10px;
@@ -43,15 +43,24 @@ HTML_TEMPLATE = '''
         }
 
         .puzzle-piece {
-            width: 60px;
-            height: 60px;
+            width: 100px;
+            height: 100px;
             border: 1px solid black;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 20px;
             cursor: pointer;
+            position: relative;
+        }
+
+        .puzzle-piece.number {
             background: white;
+        }
+
+        .puzzle-piece.image {
+            background-size: 300px 300px;
+            background-repeat: no-repeat;
         }
 
         .puzzle-piece.empty {
@@ -62,13 +71,11 @@ HTML_TEMPLATE = '''
         button {
             margin: 5px;
             padding: 5px 10px;
-            font-family: monospace;
         }
 
         select {
             margin: 5px;
             padding: 5px;
-            font-family: monospace;
         }
 
         .section {
@@ -86,10 +93,6 @@ HTML_TEMPLATE = '''
             margin: 2px 0;
         }
 
-        #loading {
-            color: red;
-        }
-
         #solutionSteps {
             max-height: 200px;
             overflow-y: auto;
@@ -97,10 +100,40 @@ HTML_TEMPLATE = '''
             padding: 5px;
             margin-top: 10px;
         }
+
+        #loading {
+            color: red;
+        }
+
+        .upload-section {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid black;
+        }
+
+        #imagePreview {
+            margin-top: 10px;
+        }
+
+        #imagePreview img {
+            max-width: 150px;
+            max-height: 150px;
+            border: 1px solid black;
+        }
     </style>
 </head>
 <body>
     <h1>8-Puzzle Game</h1>
+
+    <div class="upload-section">
+        <h3>Upload an Image to Create Your Puzzle</h3>
+        <input type="file" id="imageInput" accept="image/*">
+        <p>Or use the default numbered puzzle below</p>
+        <div id="imagePreview" style="display: none;">
+            <p>Current image:</p>
+            <img id="previewImg" src="" alt="Preview">
+        </div>
+    </div>
 
     <div class="section">
         <label>Algorithm:</label>
@@ -150,10 +183,38 @@ HTML_TEMPLATE = '''
         let sessionId = null;
         let currentSolution = null;
         let isAnimating = false;
+        let uploadedImage = null;
 
         // Initialize game on page load
         window.onload = function() {
             newGame();
+
+            // Handle image upload
+            document.getElementById('imageInput').addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        uploadedImage = e.target.result;
+                        document.getElementById('previewImg').src = uploadedImage;
+                        document.getElementById('imagePreview').style.display = 'block';
+
+                        // Redraw puzzles with image
+                        if (sessionId) {
+                            fetch('/api/get_state', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ session_id: sessionId })
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                updatePuzzleDisplay(data.state, data.moves);
+                            });
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
         };
 
         // Create new game
@@ -249,8 +310,8 @@ HTML_TEMPLATE = '''
                         algorithm: algorithm 
                     })
                 });
-                const data = await response.json();
 
+                const data = await response.json();
                 document.getElementById('loading').style.display = 'none';
 
                 if (data.success) {
@@ -279,25 +340,60 @@ HTML_TEMPLATE = '''
                 if (state[i] === 0) {
                     piece.classList.add('empty');
                 } else {
-                    piece.textContent = state[i];
+                    if (uploadedImage) {
+                        // Use image for puzzle piece
+                        piece.classList.add('image');
+
+                        // Calculate background position for this tile
+                        // state[i] tells us which piece number this is (1-8)
+                        // We need to show the correct part of the image
+                        const tileNumber = state[i] - 1; // Convert to 0-based
+                        const row = Math.floor(tileNumber / 3);
+                        const col = tileNumber % 3;
+
+                        piece.style.backgroundImage = `url(${uploadedImage})`;
+                        piece.style.backgroundPosition = `-${col * 100}px -${row * 100}px`;
+
+                        // Add text overlay to show number
+                        piece.innerHTML = `<div style="position: absolute; top: 2px; left: 2px; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 14px;">${state[i]}</div>`;
+                    } else {
+                        // Use numbers
+                        piece.classList.add('number');
+                        piece.textContent = state[i];
+                    }
+
                     piece.onclick = () => makeMove(i);
                 }
 
                 currentPuzzle.appendChild(piece);
             }
 
-            // Update target puzzle (only once)
+            // Update target puzzle
             const targetPuzzle = document.getElementById('targetPuzzle');
-            if (targetPuzzle.children.length === 0) {
+            if (targetPuzzle.children.length === 0 || uploadedImage) {
+                targetPuzzle.innerHTML = '';
                 const goalState = [1, 2, 3, 4, 5, 6, 7, 8, 0];
                 for (let i = 0; i < 9; i++) {
                     const piece = document.createElement('div');
                     piece.className = 'puzzle-piece';
+
                     if (goalState[i] === 0) {
                         piece.classList.add('empty');
                     } else {
-                        piece.textContent = goalState[i];
+                        if (uploadedImage) {
+                            piece.classList.add('image');
+                            const tileNumber = goalState[i] - 1;
+                            const row = Math.floor(tileNumber / 3);
+                            const col = tileNumber % 3;
+                            piece.style.backgroundImage = `url(${uploadedImage})`;
+                            piece.style.backgroundPosition = `-${col * 100}px -${row * 100}px`;
+                            piece.innerHTML = `<div style="position: absolute; top: 2px; left: 2px; background: rgba(255,255,255,0.7); padding: 2px 5px; font-size: 14px;">${goalState[i]}</div>`;
+                        } else {
+                            piece.classList.add('number');
+                            piece.textContent = goalState[i];
+                        }
                     }
+
                     targetPuzzle.appendChild(piece);
                 }
             }
@@ -341,7 +437,6 @@ HTML_TEMPLATE = '''
             }
             isAnimating = false;
 
-            // Check if solved
             const finalState = currentSolution[currentSolution.length - 1];
             const goalState = [1, 2, 3, 4, 5, 6, 7, 8, 0];
             if (finalState.every((val, idx) => val === goalState[idx])) {
@@ -391,18 +486,16 @@ class PuzzleState:
         return hash(self.hash)
 
     def __lt__(self, other):
-        return False  # For heap comparison
+        return False
 
     def get_blank_position(self) -> int:
         return self.state.index(0)
 
     def get_neighbors(self) -> List['PuzzleState']:
-        """Get all valid neighbor states"""
         neighbors = []
         blank_pos = self.get_blank_position()
         row, col = blank_pos // 3, blank_pos % 3
 
-        # Possible moves: up, down, left, right
         moves = [
             (-1, 0, blank_pos - 3),  # up
             (1, 0, blank_pos + 3),  # down
@@ -413,7 +506,6 @@ class PuzzleState:
         for dr, dc, new_pos in moves:
             new_row, new_col = row + dr, col + dc
             if 0 <= new_row < 3 and 0 <= new_col < 3:
-                # Additional check to prevent wrapping
                 if abs((new_pos % 3) - (blank_pos % 3)) <= 1 or abs(new_pos - blank_pos) == 3:
                     new_state = self.state.copy()
                     new_state[blank_pos], new_state[new_pos] = new_state[new_pos], new_state[blank_pos]
@@ -425,7 +517,6 @@ class PuzzleState:
         return self.state == [1, 2, 3, 4, 5, 6, 7, 8, 0]
 
     def manhattan_distance(self) -> int:
-        """Calculate Manhattan distance heuristic"""
         distance = 0
         for i in range(9):
             if self.state[i] != 0:
@@ -436,7 +527,6 @@ class PuzzleState:
         return distance
 
     def misplaced_tiles(self) -> int:
-        """Count misplaced tiles heuristic"""
         goal = [1, 2, 3, 4, 5, 6, 7, 8, 0]
         return sum(1 for i in range(9) if self.state[i] != 0 and self.state[i] != goal[i])
 
@@ -446,7 +536,6 @@ class PuzzleSolver:
 
     @staticmethod
     def reconstruct_path(final_state: PuzzleState) -> List[List[int]]:
-        """Reconstruct solution path from final state"""
         path = []
         current = final_state
         while current:
@@ -456,21 +545,17 @@ class PuzzleSolver:
 
     @staticmethod
     def astar_search(initial_state: List[int], heuristic='manhattan') -> Tuple[List[List[int]], int]:
-        """A* search algorithm"""
         start = PuzzleState(initial_state)
         if start.is_goal():
             return [initial_state], 0
 
-        # Priority queue: (f_score, counter, state)
         counter = 0
         open_set = []
         heapq.heappush(open_set, (0, counter, start))
-
-        # Track best g_score for each state
         g_score = {start.hash: 0}
         closed_set = set()
         nodes_explored = 0
-        max_nodes = 100000  # Prevent infinite loops
+        max_nodes = 100000
 
         while open_set and nodes_explored < max_nodes:
             _, _, current = heapq.heappop(open_set)
@@ -507,7 +592,6 @@ class PuzzleSolver:
 
     @staticmethod
     def bfs_search(initial_state: List[int]) -> Tuple[List[List[int]], int]:
-        """Breadth-first search"""
         start = PuzzleState(initial_state)
         if start.is_goal():
             return [initial_state], 0
@@ -533,7 +617,6 @@ class PuzzleSolver:
 
     @staticmethod
     def dfs_search(initial_state: List[int], max_depth: int = 20) -> Tuple[List[List[int]], int]:
-        """Depth-first search with depth limit"""
         start = PuzzleState(initial_state)
         if start.is_goal():
             return [initial_state], 0
@@ -542,7 +625,7 @@ class PuzzleSolver:
         visited = set()
         nodes_explored = 0
 
-        while stack and nodes_explored < 10000:  # Limit nodes for DFS
+        while stack and nodes_explored < 10000:
             current = stack.pop()
 
             if current.hash in visited or current.depth > max_depth:
@@ -554,7 +637,6 @@ class PuzzleSolver:
             if current.is_goal():
                 return PuzzleSolver.reconstruct_path(current), nodes_explored
 
-            # Add neighbors in reverse order for consistent DFS behavior
             for neighbor in reversed(current.get_neighbors()):
                 if neighbor.hash not in visited:
                     stack.append(neighbor)
@@ -563,7 +645,6 @@ class PuzzleSolver:
 
     @staticmethod
     def greedy_search(initial_state: List[int]) -> Tuple[List[List[int]], int]:
-        """Greedy best-first search"""
         start = PuzzleState(initial_state)
         if start.is_goal():
             return [initial_state], 0
@@ -605,12 +686,9 @@ class GameSession:
         self.start_time = time.time()
 
     def shuffle(self):
-        """Shuffle the puzzle to a solvable state"""
-        # Start from goal state and make random valid moves
         self.state = [1, 2, 3, 4, 5, 6, 7, 8, 0]
         puzzle_state = PuzzleState(self.state)
 
-        # Make 50-100 random moves from solved state
         num_shuffles = random.randint(50, 100)
         for _ in range(num_shuffles):
             neighbors = puzzle_state.get_neighbors()
@@ -621,44 +699,35 @@ class GameSession:
         self.moves = 0
 
     def reset(self):
-        """Reset to goal state"""
         self.state = [1, 2, 3, 4, 5, 6, 7, 8, 0]
         self.moves = 0
 
     def make_move(self, position: int) -> bool:
-        """Attempt to move a piece at given position"""
         if position < 0 or position >= 9:
             return False
 
         blank_pos = self.state.index(0)
-
-        # Check if move is valid (adjacent to blank)
         row1, col1 = position // 3, position % 3
         row2, col2 = blank_pos // 3, blank_pos % 3
 
-        # Check if adjacent (not diagonal)
         if abs(row1 - row2) + abs(col1 - col2) == 1:
-            # Valid move - swap pieces
             self.state[blank_pos], self.state[position] = self.state[position], self.state[blank_pos]
             self.moves += 1
             return True
         return False
 
     def is_solved(self) -> bool:
-        """Check if puzzle is solved"""
         return self.state == [1, 2, 3, 4, 5, 6, 7, 8, 0]
 
 
 # Routes
 @app.route('/')
 def index():
-    """Serve the main game page"""
     return render_template_string(HTML_TEMPLATE)
 
 
 @app.route('/api/new_game', methods=['POST'])
 def new_game():
-    """Create a new game session"""
     session = GameSession()
     session.shuffle()
     game_sessions[session.session_id] = session
@@ -670,9 +739,24 @@ def new_game():
     })
 
 
+@app.route('/api/get_state', methods=['POST'])
+def get_state():
+    data = request.json
+    session_id = data.get('session_id')
+
+    if session_id not in game_sessions:
+        return jsonify({'error': 'Invalid session'}), 400
+
+    session = game_sessions[session_id]
+    return jsonify({
+        'state': session.state,
+        'moves': session.moves,
+        'solved': session.is_solved()
+    })
+
+
 @app.route('/api/shuffle', methods=['POST'])
 def shuffle():
-    """Shuffle the current puzzle"""
     data = request.json
     session_id = data.get('session_id')
 
@@ -690,7 +774,6 @@ def shuffle():
 
 @app.route('/api/reset', methods=['POST'])
 def reset():
-    """Reset puzzle to solved state"""
     data = request.json
     session_id = data.get('session_id')
 
@@ -708,7 +791,6 @@ def reset():
 
 @app.route('/api/move', methods=['POST'])
 def move():
-    """Make a move in the puzzle"""
     data = request.json
     session_id = data.get('session_id')
     position = data.get('position')
@@ -732,7 +814,6 @@ def move():
 
 @app.route('/api/solve', methods=['POST'])
 def solve():
-    """Solve the current puzzle"""
     data = request.json
     session_id = data.get('session_id')
     algorithm = data.get('algorithm', 'astar_manhattan')
@@ -744,7 +825,6 @@ def solve():
     start_time = time.time()
 
     try:
-        # Choose algorithm
         if algorithm == 'astar_manhattan':
             solution, nodes = PuzzleSolver.astar_search(session.state, 'manhattan')
             algorithm_name = 'A* (Manhattan Distance)'
@@ -782,41 +862,14 @@ def solve():
             })
 
     except Exception as e:
-        print(f"Error in solve endpoint: {str(e)}")  # Debug logging
+        print(f"Error in solve endpoint: {str(e)}")
         return jsonify({
             'success': False,
             'message': f'Error solving puzzle: {str(e)}'
         }), 500
 
 
-@app.route('/api/check_solvable', methods=['POST'])
-def check_solvable():
-    """Check if a puzzle state is solvable"""
-    data = request.json
-    state = data.get('state', [])
-
-    def count_inversions(state):
-        """Count inversions in the puzzle state"""
-        inv_count = 0
-        for i in range(9):
-            for j in range(i + 1, 9):
-                if state[i] and state[j] and state[i] > state[j]:
-                    inv_count += 1
-        return inv_count
-
-    # A puzzle is solvable if the number of inversions is even
-    inversions = count_inversions(state)
-    is_solvable = inversions % 2 == 0
-
-    return jsonify({
-        'solvable': is_solvable,
-        'inversions': inversions
-    })
-
-
-# Cleanup old sessions periodically (optional)
 def cleanup_old_sessions():
-    """Remove sessions older than 1 hour"""
     current_time = time.time()
     to_remove = []
     for sid, session in game_sessions.items():
@@ -827,12 +880,12 @@ def cleanup_old_sessions():
 
 
 if __name__ == '__main__':
-    # Run the Flask app
     print("=" * 50)
-    print("8-PUZZLE GAME SERVER")
+    print("8-PUZZLE GAME")
     print("=" * 50)
     print("Starting server...")
     print("Open http://localhost:5000 in your browser to play!")
     print("Press Ctrl+C to stop the server")
     print("=" * 50)
+
     app.run(debug=False, port=5050, host='0.0.0.0')
