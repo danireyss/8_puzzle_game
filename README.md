@@ -3,9 +3,6 @@
 **Author:** Daniel Reyes  
 **Date:** September 25, 2025  
 **Course:** CAI4002
-
-**PANTHERID:** 6519474
-
 ---
 
 ## Overview
